@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#060a10">
+<title>Aqil Computers</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:#060a10;color:#e8f0f8;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:grid;place-items:center;text-align:center;padding:24px;
+    -webkit-user-select:none;user-select:none}
+  .boot{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:280px}
+  .mark{width:62px;height:62px;border-radius:17px;display:grid;place-items:center;
+    background:linear-gradient(140deg,#b6fbf0,#25bfae);color:#04201b;
+    font-family:ui-monospace,Consolas,monospace;font-size:25px;font-weight:700;letter-spacing:-.04em;
+    box-shadow:0 10px 34px rgba(45,212,191,.22)}
+  .name{font-size:16px;font-weight:650;letter-spacing:-.02em;margin-top:4px}
+  .sub{font-family:ui-monospace,Consolas,monospace;font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:#6d8098}
+  .bar{width:96px;height:2px;border-radius:2px;background:rgba(94,234,212,.14);overflow:hidden;margin-top:8px}
+  .bar i{display:block;width:38%;height:100%;border-radius:2px;background:#5eead4;
+    animation:slide 1.15s ease-in-out infinite}
+  @keyframes slide{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+  .err{display:none;font-size:11px;line-height:1.6;color:#93a6bb;margin-top:10px}
+  .err b{color:#ff7d8d;display:block;margin-bottom:4px;font-size:12px}
+  .err button{margin-top:12px;padding:9px 14px;border-radius:9px;border:1px solid rgba(94,234,212,.3);
+    background:rgba(94,234,212,.1);color:#5eead4;font-size:11px;font-weight:600;font-family:inherit}
+  body.broken .bar{display:none}
+  body.broken .err{display:block}
+  @media (prefers-color-scheme:light){
+    body{background:#e8eef6;color:#0b1520}
+    .sub{color:#5c6f86}
+    .err{color:#4a5d74}
+  }
+</style>
+</head>
+<body>
+<div class="boot">
+  <div class="mark">AQ</div>
+  <div class="name">Aqil Computers</div>
+  <div class="sub" id="boot-sub">Starting</div>
+  <div class="bar"><i></i></div>
+  <div class="err" id="boot-err"><b id="boot-err-title">Could not start</b>
+    <span id="boot-err-text"></span>
+    <button type="button" id="boot-retry">Reset the cached update</button>
+  </div>
+</div>
+<script>
+(function () {
+  'use strict';
+
+  /* Injected by sync.js at build time. */
+  var CFG = {
+    native: true,
+    shell: '__SHELL_VERSION__',
+    bundled: '__APP_VERSION__',
+    localUrl: 'app.html',
+    bundleUrl: '__BUNDLE_URL__',
+    manifestUrl: '__MANIFEST_URL__',
+    apkUrl: '__APK_URL__',
+    repoUrl: '__REPO_URL__'
+  };
+
+  var K = {
+    bundle: 'aqil_ota_bundle_v1',
+    version: 'aqil_ota_version_v1',
+    prev: 'aqil_ota_prev_v1',
+    prevVersion: 'aqil_ota_prev_version_v1',
+    pending: 'aqil_ota_pending_v1'
+  };
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* noop */ } }
+
+  function cmp(a, b) {
+    var pa = String(a || '0').split(/[.+-]/), pb = String(b || '0').split(/[.+-]/);
+    var len = Math.max(pa.length, pb.length);
+    for (var i = 0; i < len; i++) {
+      var d = (parseInt(pa[i], 10) || 0) - (parseInt(pb[i], 10) || 0);
+      if (d) return d > 0 ? 1 : -1;
+    }
+    return 0;
+  }
+
+  function isHtml(s) {
+    return typeof s === 'string' && s.length > 20000 &&
+      s.indexOf('Aqil Computers') !== -1 && s.indexOf('<html') !== -1;
+  }
+
+  var running = { version: CFG.bundled, html: null };
+  var downloaded = null;
+
+  function rollbackPick() {
+    var pv = lsGet(K.prevVersion), ph = lsGet(K.prev);
+    if (ph && pv && isHtml(ph)) return { version: pv, html: ph };
+    return { version: CFG.bundled, html: null };
+  }
+
+  function pickBundle() {
+    var pending = lsGet(K.pending);
+    var ver = lsGet(K.version);
+    var html = lsGet(K.bundle);
+    if (pending && ver && pending === ver && ver !== CFG.bundled) {
+      /* This bundle never finished booting: drop it and fall back. */
+      lsDel(K.version); lsDel(K.bundle);
+      return rollbackPick();
+    }
+    if (html && ver && isHtml(html) && cmp(ver, CFG.bundled) >= 0) return { version: ver, html: html };
+    return { version: CFG.bundled, html: null };
+  }
+
+  function setPending(version) {
+    if (!lsSet(K.pending, version)) lsDel(K.pending);
+  }
+
+  function showError(title, text) {
+    document.body.className = 'broken';
+    var t = document.getElementById('boot-err-title');
+    var d = document.getElementById('boot-err-text');
+    if (t) t.textContent = title;
+    if (d) d.textContent = text;
+  }
+
+  document.getElementById('boot-retry').addEventListener('click', function () {
+    lsDel(K.bundle); lsDel(K.version); lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.pending);
+    location.reload();
+  });
+
+  function expose() {
+    window.__AQIL_SHELL__ = {
+      native: true,
+      version: CFG.shell,
+      bundledVersion: CFG.bundled,
+      get bundleVersion() { return running.version; },
+      manifestUrl: CFG.manifestUrl,
+      apkUrl: CFG.apkUrl,
+      repoUrl: CFG.repoUrl,
+      ready: function () { lsDel(K.pending); },
+      applyUpdate: download
+    };
+  }
+
+  function storeBundle(version, html) {
+    var cur = lsGet(K.version), curHtml = lsGet(K.bundle);
+    if (cur && curHtml) {
+      if (!lsSet(K.prev, curHtml) || !lsSet(K.prevVersion, cur)) {
+        lsDel(K.prev); lsDel(K.prevVersion);
+      }
+    }
+    if (lsSet(K.bundle, html) && lsSet(K.version, version)) return true;
+    /* Out of space: drop the backup and try once more. */
+    lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.bundle); lsDel(K.version);
+    return lsSet(K.bundle, html) && lsSet(K.version, version);
+  }
+
+  function download(man) {
+    if (!man || !man.version) return Promise.resolve({ ok: false, error: 'no manifest' });
+    if (downloaded === man.version) return Promise.resolve({ ok: true, version: downloaded });
+    if (cmp(man.version, running.version) <= 0) return Promise.resolve({ ok: true, version: running.version, current: true });
+    var url = man.bundleUrl || CFG.bundleUrl;
+    if (!/^https?:/i.test(url)) url = CFG.bundleUrl;
+    return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(man.version), {
+      cache: 'no-store',
+      credentials: 'omit'
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.text();
+    }).then(function (html) {
+      if (!isHtml(html)) throw new Error('bad bundle');
+      if (!storeBundle(man.version, html)) throw new Error('storage full');
+      downloaded = man.version;
+      return { ok: true, version: man.version, notes: man.notes || '' };
+    }).catch(function (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    });
+  }
+
+  function checkInBackground() {
+    if (navigator.onLine === false) return;
+    fetch(CFG.manifestUrl + '?t=' + Date.now(), { cache: 'no-store', credentials: 'omit' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function (man) {
+        if (!man || !man.version) return;
+        if (cmp(man.version, running.version) <= 0) return;
+        return download(man).then(function (out) {
+          if (!out || !out.ok) return;
+          var detail = { version: out.version, notes: man.notes || '', shell: man.shell || '' };
+          try { window.dispatchEvent(new CustomEvent('aqil:update-ready', { detail: detail })); } catch (e) {}
+        });
+      })
+      .catch(function () { /* offline or blocked: keep running */ });
+  }
+
+  function start(html) {
+    if (!isHtml(html)) { showError('App file missing', 'The bundled app file could not be read.'); return; }
+    running.html = html;
+    setPending(running.version);
+    expose();
+    setTimeout(checkInBackground, 2600);
+    document.open();
+    document.write(html);
+    document.close();
+  }
+
+  var picked = pickBundle();
+  running.version = picked.version;
+  if (picked.html) {
+    start(picked.html);
+  } else {
+    fetch(CFG.localUrl, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.text();
+      })
+      .then(start)
+      .catch(function () {
+        showError('App file missing', 'The app could not load. Reinstall the APK if this keeps happening.');
+      });
+  }
+})();
+</script>
+</body>
+</html>

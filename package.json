@@ -1,0 +1,22 @@
+{
+  "name": "aqil-computers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Aqil Computers — offline inventory, costing, sales and customer ledger",
+  "scripts": {
+    "sync": "node sync.js",
+    "preview": "node sync.js && node server.js",
+    "android:sync": "node sync.js && cap sync android",
+    "android:open": "cap open android",
+    "android:apk": "node sync.js && cap sync android && cd android && gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/browser": "^8.0.5",
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2"
+  }
+}

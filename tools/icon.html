@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  img { display: block; }
+</style>
+</head>
+<body>
+<img id="a" src="../static/icon.svg" alt="">
+<script>
+  const q = new URLSearchParams(location.search);
+  const size = Number(q.get('s')) || 512;
+  const pad = Number(q.get('pad')) || 0;
+  const inner = Math.round(size * (1 - pad));
+  const img = document.getElementById('a');
+  img.style.width = inner + 'px';
+  img.style.height = inner + 'px';
+  img.style.margin = Math.round((size - inner) / 2) + 'px';
+</script>
+</body>
+</html>
