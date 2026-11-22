@@ -27,10 +27,16 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Install Android platform
+      - name: Android SDK
         run: |
-          sdkmanager --sdk_root="$ANDROID_HOME" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-          ls "$ANDROID_HOME/platforms"
+          echo "SDK: $ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms" || true
+          SDKMANAGER=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1)
+          echo "sdkmanager: $SDKMANAGER"
+          if [ -n "$SDKMANAGER" ]; then
+            "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
+          fi
+          ls "$ANDROID_HOME/platforms" || true
 
       - run: npm ci
 
