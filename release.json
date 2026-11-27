@@ -1,7 +1,7 @@
 {
   "repo": "khalilgemini214-boop/aqil-computers",
-  "version": "1.0.0",
-  "shell": "1.0.0",
-  "released": "2026-11-22",
-  "notes": "First public release. Inventory costing, sales with saved P&L, customer accounts and ledger, rates history, plus automatic updates."
+  "version": "1.1.0",
+  "shell": "1.1.0",
+  "released": "2026-11-27",
+  "notes": "- Updates are detected automatically on every push, no version bump needed\n- Clear download buttons when a new APK is required\n- Deploys to both GitHub Pages and Cloudflare"
 }

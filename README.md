@@ -11,36 +11,55 @@ All data is stored on the device (`localStorage`). Nothing is uploaded.
 
 ## How updates work
 
-The app checks `version.json` on GitHub when it starts.
+Every build gets an automatic timestamp (`build` in `version.json`), so **you do not bump a version number to ship a change** — push the code and the app notices.
 
-| What changed | What the app does |
+| What changed | What happens |
 | --- | --- |
-| Web build only (the HTML) | Downloads the new file in the background and swaps it in on the **next app restart**. No reinstall, no data loss. |
-| Android shell (native code, permissions, icons) | It cannot replace itself, so it shows a **“New app version required”** modal with a direct APK download button. |
+| HTML / CSS / JS (the app itself) | On start the app fetches `version.json`. If the build stamp is newer, the Android app downloads the new bundle in the background, verifies it and swaps it in on the **next restart**. No reinstall, no data loss. In a browser the service worker fetches the new build on reload. |
+| Android shell (`android/`, permissions, icons, plugins) | It cannot replace itself, so it shows a **“New app version required”** modal with **Download APK** and **Release page** buttons. Data stays on the phone. |
 
-Version numbers:
+A downloaded bundle that fails to start is automatically rolled back to the previous working one.
 
-- `APP_VERSION` inside `aqil-computers.html` — the web build. Bump it for every release.
-- `shell` in `release.json` — the Android app itself. Bump it only when `android/` changed, so every phone is told to install the new APK.
+Versions:
+
+- `APP_VERSION` in `aqil-computers.html` — human release number.
+- `APP_BUILD` — stamped by `sync.js` on every build (do not edit).
+- `shell` in `release.json` — the Android apk itself. Bump it only when `android/` or the loader changed, so phones are told to install a new APK.
 
 ## Releasing
 
 ```bash
-# 1. change the app, then bump the version in aqil-computers.html and release.json
-node sync.js            # generates dist/ (Pages) and www/ (Capacitor)
-git add -A
-git commit -m "Release 1.1.0"
-git push                # GitHub Actions deploys the web build to Pages
+# normal app change: no version bump needed
+node sync.js
+git add -A && git commit -m "Ledger tweaks" && git push   # phones update on next start
 
-# 2. Android APK (only when you want a new APK)
-git tag v1.1.0
-git push --tags         # Actions builds the APK and attaches it to the release
+# new APK (only when native code / loader / icons change)
+# 1. bump "shell" (and optionally "version") in release.json
+# 2. bump APP_VERSION in aqil-computers.html if the number shown should change
+node sync.js
+git add -A && git commit -m "Release 1.1.0" && git push
+git tag v1.1.0 && git push --tags
 ```
 
-Push to `main` → **Web app** workflow deploys `dist/` to GitHub Pages.
-Push tag `v*` → **Android APK** workflow builds `aqil-computers.apk` and attaches it to that release.
+- Push to `main` → **Web app** workflow deploys `dist/` to GitHub Pages.
+- Push tag `v*` → **Android APK** workflow builds `aqil-computers.apk` and attaches it to the release.
 
-The APK is a debug build, signed with the standard Android debug key. It installs fine and updates fine; it is not meant for the Play Store.
+The APK is debug-signed: it installs and updates normally, but it is not meant for the Play Store.
+
+## Deploying to Cloudflare (optional)
+
+The repo ships `wrangler.jsonc`, so Cloudflare serves the generated `dist/` folder as static assets.
+In **Workers & Pages → aqil-computers → Settings → Build** set:
+
+| Setting | Value |
+| --- | --- |
+| Build command | `node sync.js` |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` |
+
+Or deploy from this machine with `npm run deploy`.
+
+Cloudflare is a **second copy** of the app with its own browser storage. Keep one URL as the main app (the GitHub Pages URL is what the APK uses for updates) and use the other only for testing.
 
 ## Local development
 
@@ -50,6 +69,7 @@ npm run preview        # http://127.0.0.1:4177 — the real Pages build with the
 npm run android:sync   # regenerate www/ and copy it into the Android project
 npm run android:open   # open android/ in Android Studio
 npm run android:apk    # build a debug APK (needs JDK 21 + Android SDK)
+npm run deploy         # deploy dist/ to Cloudflare
 ```
 
 Files:
@@ -57,15 +77,16 @@ Files:
 ```
 aqil-computers.html      the whole app (source of truth)
 release.json             repo, shell version, release notes
-sync.js                  builds dist/ and www/, syncs the Android version code
+sync.js                  builds dist/ and www/, stamps the build, syncs the Android version code
 static/                  service worker, manifest, icons
 native/loader.html       Android update loader (downloads, verifies, swaps bundles, rolls back)
+wrangler.jsonc           Cloudflare static-assets config
 android/                 Capacitor Android project
 .github/workflows/       Pages deploy + APK build
 ```
 
 ## Notes
 
-- The Android app runs the bundle from local storage, so it opens instantly and works offline. If a downloaded update fails to start, the loader automatically rolls back to the previous working bundle.
-- Browser data is per-origin: the `file://` copy and the GitHub Pages copy have separate storage. Use **Backup & data → Export backup** and then **Import backup** when moving.
+- The Android app runs from local storage, so it opens instantly and works offline.
+- Browser data is per-origin: the `file://` copy, GitHub Pages and Cloudflare each have separate storage. Use **Backup & data → Export backup** / **Import backup** to move records.
 - The APK download opens in Chrome. Android may ask once for permission to install apps from the browser.

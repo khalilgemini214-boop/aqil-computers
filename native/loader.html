@@ -57,6 +57,7 @@
     native: true,
     shell: '__SHELL_VERSION__',
     bundled: '__APP_VERSION__',
+    bundledBuild: '__APP_BUILD__',
     localUrl: 'app.html',
     bundleUrl: '__BUNDLE_URL__',
     manifestUrl: '__MANIFEST_URL__',
@@ -67,8 +68,10 @@
   var K = {
     bundle: 'aqil_ota_bundle_v1',
     version: 'aqil_ota_version_v1',
+    build: 'aqil_ota_build_v1',
     prev: 'aqil_ota_prev_v1',
     prevVersion: 'aqil_ota_prev_version_v1',
+    prevBuild: 'aqil_ota_prev_build_v1',
     pending: 'aqil_ota_pending_v1'
   };
 
@@ -86,35 +89,58 @@
     return 0;
   }
 
+  /* Build stamps are ISO timestamps, so a plain string compare orders them. */
+  function newer(v1, b1, v2, b2) {
+    if (b1 && b2 && b1 !== 'dev' && b2 !== 'dev') return b1 > b2;
+    return cmp(v1, v2) > 0;
+  }
+
+  function sameBuild(a, b) {
+    if (!a || !b) return false;
+    return a === b;
+  }
+
   function isHtml(s) {
     return typeof s === 'string' && s.length > 20000 &&
       s.indexOf('Aqil Computers') !== -1 && s.indexOf('<html') !== -1;
   }
 
-  var running = { version: CFG.bundled, html: null };
+  var running = { version: CFG.bundled, build: CFG.bundledBuild, html: null };
   var downloaded = null;
 
+  function bundled() {
+    return { version: CFG.bundled, build: CFG.bundledBuild, html: null };
+  }
+
   function rollbackPick() {
-    var pv = lsGet(K.prevVersion), ph = lsGet(K.prev);
-    if (ph && pv && isHtml(ph)) return { version: pv, html: ph };
-    return { version: CFG.bundled, html: null };
+    var pv = lsGet(K.prevVersion), pb = lsGet(K.prevBuild), ph = lsGet(K.prev);
+    if (ph && pv && isHtml(ph) && !newer(CFG.bundled, CFG.bundledBuild, pv, pb)) {
+      return { version: pv, build: pb || '', html: ph };
+    }
+    return bundled();
   }
 
   function pickBundle() {
     var pending = lsGet(K.pending);
     var ver = lsGet(K.version);
+    var build = lsGet(K.build);
     var html = lsGet(K.bundle);
-    if (pending && ver && pending === ver && ver !== CFG.bundled) {
-      /* This bundle never finished booting: drop it and fall back. */
-      lsDel(K.version); lsDel(K.bundle);
+
+    /* This bundle never finished booting: drop it and fall back. */
+    var isBundled = ver === CFG.bundled && (sameBuild(build, CFG.bundledBuild) || !build);
+    if (pending && (sameBuild(pending, build) || pending === ver) && !isBundled) {
+      lsDel(K.version); lsDel(K.build); lsDel(K.bundle);
       return rollbackPick();
     }
-    if (html && ver && isHtml(html) && cmp(ver, CFG.bundled) >= 0) return { version: ver, html: html };
-    return { version: CFG.bundled, html: null };
+    if (html && ver && isHtml(html) && !newer(CFG.bundled, CFG.bundledBuild, ver, build)) {
+      return { version: ver, build: build || '', html: html };
+    }
+    return bundled();
   }
 
-  function setPending(version) {
-    if (!lsSet(K.pending, version)) lsDel(K.pending);
+  function setPending() {
+    var key = running.build || running.version;
+    if (!lsSet(K.pending, key)) lsDel(K.pending);
   }
 
   function showError(title, text) {
@@ -126,7 +152,8 @@
   }
 
   document.getElementById('boot-retry').addEventListener('click', function () {
-    lsDel(K.bundle); lsDel(K.version); lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.pending);
+    lsDel(K.bundle); lsDel(K.version); lsDel(K.build);
+    lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.prevBuild); lsDel(K.pending);
     location.reload();
   });
 
@@ -136,6 +163,7 @@
       version: CFG.shell,
       bundledVersion: CFG.bundled,
       get bundleVersion() { return running.version; },
+      get bundleBuild() { return running.build; },
       manifestUrl: CFG.manifestUrl,
       apkUrl: CFG.apkUrl,
       repoUrl: CFG.repoUrl,
@@ -144,26 +172,30 @@
     };
   }
 
-  function storeBundle(version, html) {
-    var cur = lsGet(K.version), curHtml = lsGet(K.bundle);
+  function storeBundle(version, build, html) {
+    var cur = lsGet(K.version), curBuild = lsGet(K.build), curHtml = lsGet(K.bundle);
     if (cur && curHtml) {
-      if (!lsSet(K.prev, curHtml) || !lsSet(K.prevVersion, cur)) {
-        lsDel(K.prev); lsDel(K.prevVersion);
+      if (!lsSet(K.prev, curHtml) || !lsSet(K.prevVersion, cur) || !lsSet(K.prevBuild, curBuild || '')) {
+        lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.prevBuild);
       }
     }
-    if (lsSet(K.bundle, html) && lsSet(K.version, version)) return true;
+    if (lsSet(K.bundle, html) && lsSet(K.version, version) && lsSet(K.build, build || '')) return true;
     /* Out of space: drop the backup and try once more. */
-    lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.bundle); lsDel(K.version);
-    return lsSet(K.bundle, html) && lsSet(K.version, version);
+    lsDel(K.prev); lsDel(K.prevVersion); lsDel(K.prevBuild);
+    lsDel(K.bundle); lsDel(K.version); lsDel(K.build);
+    return lsSet(K.bundle, html) && lsSet(K.version, version) && lsSet(K.build, build || '');
   }
 
   function download(man) {
     if (!man || !man.version) return Promise.resolve({ ok: false, error: 'no manifest' });
-    if (downloaded === man.version) return Promise.resolve({ ok: true, version: downloaded });
-    if (cmp(man.version, running.version) <= 0) return Promise.resolve({ ok: true, version: running.version, current: true });
+    var id = man.build || man.version;
+    if (downloaded === id) return Promise.resolve({ ok: true, version: man.version, build: man.build || '' });
+    if (!newer(man.version, man.build, running.version, running.build)) {
+      return Promise.resolve({ ok: true, version: running.version, build: running.build, current: true });
+    }
     var url = man.bundleUrl || CFG.bundleUrl;
     if (!/^https?:/i.test(url)) url = CFG.bundleUrl;
-    return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(man.version), {
+    return fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'v=' + encodeURIComponent(id), {
       cache: 'no-store',
       credentials: 'omit'
     }).then(function (res) {
@@ -171,9 +203,9 @@
       return res.text();
     }).then(function (html) {
       if (!isHtml(html)) throw new Error('bad bundle');
-      if (!storeBundle(man.version, html)) throw new Error('storage full');
-      downloaded = man.version;
-      return { ok: true, version: man.version, notes: man.notes || '' };
+      if (!storeBundle(man.version, man.build || '', html)) throw new Error('storage full');
+      downloaded = id;
+      return { ok: true, version: man.version, build: man.build || '', notes: man.notes || '' };
     }).catch(function (err) {
       return { ok: false, error: String((err && err.message) || err) };
     });
@@ -188,10 +220,10 @@
       })
       .then(function (man) {
         if (!man || !man.version) return;
-        if (cmp(man.version, running.version) <= 0) return;
+        if (!newer(man.version, man.build, running.version, running.build)) return;
         return download(man).then(function (out) {
           if (!out || !out.ok) return;
-          var detail = { version: out.version, notes: man.notes || '', shell: man.shell || '' };
+          var detail = { version: out.version, build: out.build, notes: man.notes || '', shell: man.shell || '' };
           try { window.dispatchEvent(new CustomEvent('aqil:update-ready', { detail: detail })); } catch (e) {}
         });
       })
@@ -201,7 +233,7 @@
   function start(html) {
     if (!isHtml(html)) { showError('App file missing', 'The bundled app file could not be read.'); return; }
     running.html = html;
-    setPending(running.version);
+    setPending();
     expose();
     setTimeout(checkInBackground, 2600);
     document.open();
@@ -211,6 +243,7 @@
 
   var picked = pickBundle();
   running.version = picked.version;
+  running.build = picked.build;
   if (picked.html) {
     start(picked.html);
   } else {

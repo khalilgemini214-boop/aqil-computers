@@ -15,6 +15,11 @@ if (rel.version && rel.version !== version) {
   throw new Error('release.json says ' + rel.version + ' but the app says ' + version + '. Bump both.');
 }
 
+/* Every run gets a fresh stamp, so any pushed change is picked up as an update. */
+const build = process.env.AQIL_BUILD || (new Date().toISOString().slice(0, 19) + 'Z');
+const appBuilt = app.replace(/const APP_BUILD = '[^']*';/, "const APP_BUILD = '" + build + "';");
+if (appBuilt === app) throw new Error('APP_BUILD not found in aqil-computers.html');
+
 const [owner, name] = String(rel.repo || '').split('/');
 if (!owner || !name) throw new Error('release.json needs "repo": "owner/name"');
 
@@ -28,6 +33,7 @@ const released = rel.released || new Date().toISOString().slice(0, 10);
 
 const manifest = {
   version,
+  build,
   shell,
   released,
   notes: rel.notes || '',
@@ -51,8 +57,8 @@ fs.mkdirSync(dist, { recursive: true });
 fs.mkdirSync(www, { recursive: true });
 
 /* ---- GitHub Pages ---- */
-write(dist, 'index.html', app);
-write(dist, 'aqil-computers.html', app);
+write(dist, 'index.html', appBuilt);
+write(dist, 'aqil-computers.html', appBuilt);
 write(dist, 'version.json', manifestJson);
 write(dist, 'sw.js', read('static', 'sw.js').replace(/__VERSION__/g, version));
 write(dist, 'manifest.webmanifest', read('static', 'manifest.webmanifest'));
@@ -65,12 +71,13 @@ write(dist, '.nojekyll', '');
 const loader = read('native', 'loader.html')
   .replace(/__SHELL_VERSION__/g, shell)
   .replace(/__APP_VERSION__/g, version)
+  .replace(/__APP_BUILD__/g, build)
   .replace(/__BUNDLE_URL__/g, bundleUrl)
   .replace(/__MANIFEST_URL__/g, manifestUrl)
   .replace(/__APK_URL__/g, apkUrl)
   .replace(/__REPO_URL__/g, repoUrl);
 write(www, 'index.html', loader);
-write(www, 'app.html', app);
+write(www, 'app.html', appBuilt);
 write(www, 'version.json', manifestJson);
 write(www, 'manifest.webmanifest', read('static', 'manifest.webmanifest'));
 write(www, 'icon.svg', read('static', 'icon.svg'));
@@ -90,7 +97,7 @@ if (fs.existsSync(gradlePath)) {
   console.log('Android versionCode ' + code + ' · versionName ' + version);
 }
 
-console.log('Web build   dist/  · version ' + version);
+console.log('Web build   dist/  · version ' + version + ' · build ' + build);
 console.log('Native build www/  · shell ' + shell);
 console.log('Bundle      ' + bundleUrl);
 console.log('APK         ' + apkUrl);

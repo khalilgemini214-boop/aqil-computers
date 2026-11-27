@@ -1637,8 +1637,10 @@ body.on-ledger .tabbar{display:none}
 'use strict';
 
 const LS_KEY = 'aqil_computers_v2';
-/* APP_VERSION is read by sync.js when the GitHub build is generated. Bump it for every release. */
-const APP_VERSION = '1.0.0';
+/* APP_VERSION is the human release number. APP_BUILD is stamped by sync.js on every
+   build, so pushing a change is enough to trigger an update. */
+const APP_VERSION = '1.1.0';
+const APP_BUILD = 'dev';
 const CURRENCIES = ['PKR', 'AED', 'AFN', 'USD'];
 const DEFAULT_RATES = { AED: 78.2014, AFN: 4.45, USD: 286.735 };
 const META = {
@@ -2444,6 +2446,18 @@ function cmpVersion(a, b) {
   return 0;
 }
 
+/* Every build gets an ISO timestamp stamp, so any pushed change is an update even
+   when the release number stays the same. */
+function isNewerBuild(man) {
+  if (!man) return false;
+  if (man.build && APP_BUILD && APP_BUILD !== 'dev' && man.build !== APP_BUILD) return man.build > APP_BUILD;
+  return cmpVersion(man.version, APP_VERSION) > 0;
+}
+
+function versionLabel(man) {
+  return man && man.version && man.version !== APP_VERSION ? 'Version ' + man.version : 'A new build';
+}
+
 function nativeShell() {
   const s = window.__AQIL_SHELL__;
   return s && s.native ? s : null;
@@ -2535,14 +2549,14 @@ async function checkForUpdates(opts) {
       return man;
     }
 
-    if (cmpVersion(man.version, APP_VERSION) > 0) {
+    if (isNewerBuild(man)) {
       if (shell && typeof shell.applyUpdate === 'function') {
-        if (!silent) toast('Downloading version ' + man.version + '…', 'info');
+        if (!silent) toast('Downloading ' + versionLabel(man).toLowerCase() + '…', 'info');
         let result = null;
         try { result = await shell.applyUpdate(man); } catch (e) { result = null; }
         if (result && result.ok) {
           updateInfo.ready = result;
-          toast('Version ' + man.version + ' downloaded. Restart to finish.', 'ok');
+          toast('Update downloaded. Restart to finish.', 'ok');
           showRestartModal(man);
         } else if (!silent) {
           toast('Update download failed. Try again later.', 'err');
@@ -2592,6 +2606,7 @@ function showApkModal(man) {
       notesBlock(man) +
       '<div class="upd-link"><span>' + esc(url) + '</span></div>',
     footer: '<button type="button" class="btn ghost" data-action="close-modal">Later</button>' +
+      '<button type="button" class="btn ghost" data-action="open-release">' + icon('arrow-up-right') + ' Release page</button>' +
       '<button type="button" class="btn primary" data-action="download-apk" data-url="' + esc(url) + '">' + icon('download') + ' Download APK</button>'
   }));
 }
@@ -2600,7 +2615,7 @@ function showRestartModal(man) {
   updateModalFor = 'restart:' + man.version;
   openModal(modalShell({
     title: 'Update ready',
-    sub: 'Version ' + esc(man.version) + ' is on this device.',
+    sub: esc(versionLabel(man)) + ' is on this device.',
     cls: 'narrow upd-modal',
     body: '<div class="upd-hero ok">' + icon('check') + '</div>' +
       '<p class="upd-text">The new version is downloaded and will open the next time the app starts. Restart now to use it.</p>' +
@@ -2615,7 +2630,7 @@ function showWebUpdateModal(man, quiet) {
   updateModalFor = 'web:' + man.version;
   openModal(modalShell({
     title: 'Update available',
-    sub: 'Version ' + esc(man.version) + ' is live on GitHub.',
+    sub: esc(versionLabel(man)) + ' is live on GitHub.',
     cls: 'narrow upd-modal',
     body: '<div class="upd-hero">' + icon('refresh') + '</div>' +
       '<p class="upd-text">Reload to load the new version. Your data is saved in this browser and will not be touched.</p>' +
@@ -2632,7 +2647,7 @@ function showUpdateSheet() {
   if (!man) { checkForUpdates({}); return; }
   const shell = nativeShell();
   if (shell && man.shell && cmpVersion(man.shell, shell.version) > 0) { showApkModal(man); return; }
-  if (cmpVersion(man.version, APP_VERSION) > 0) {
+  if (isNewerBuild(man)) {
     if (updateInfo.ready) showRestartModal(man);
     else showWebUpdateModal(man, false);
     return;
@@ -3858,6 +3873,7 @@ document.addEventListener('click', (e) => {
     case 'reload-app': reloadApp(); break;
     case 'restart-app': closeAllModals(); location.reload(); break;
     case 'download-apk': openExternal(el.dataset.url); break;
+    case 'open-release': openExternal((nativeShell() && nativeShell().repoUrl ? nativeShell().repoUrl : 'https://github.com/khalilgemini214-boop/aqil-computers') + '/releases/latest'); break;
     case 'export-data': exportData(); break;
     case 'import-data': { const f = $('#import-file'); if (f) f.click(); break; }
     case 'reset-data': resetAllData(); break;

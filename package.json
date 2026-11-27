@@ -5,6 +5,8 @@
   "description": "Aqil Computers — offline inventory, costing, sales and customer ledger",
   "scripts": {
     "sync": "node sync.js",
+    "build": "node sync.js",
+    "deploy": "node sync.js && wrangler deploy",
     "preview": "node sync.js && node server.js",
     "android:sync": "node sync.js && cap sync android",
     "android:open": "cap open android",
@@ -17,6 +19,7 @@
     "@capacitor/core": "^8.6.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.6.2"
+    "@capacitor/cli": "^8.6.2",
+    "wrangler": "^4.169.0"
   }
 }
